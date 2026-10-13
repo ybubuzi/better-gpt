@@ -1,0 +1,27 @@
+{
+  "name": "@better-gpt/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@better-gpt/contracts": "0.1.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@napi-rs/keyring": "2.1.1",
+    "diff": "9.0.0",
+    "proxy-agent": "8.0.2",
+    "sharp": "0.35.5",
+    "socks": "2.8.10"
+  }
+}

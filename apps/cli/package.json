@@ -1,0 +1,9 @@
+{
+  "name": "@better-gpt/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "better-gpt": "bin/better-gpt.mjs" },
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@better-gpt/core": "0.1.0", "@better-gpt/contracts": "0.1.0", "@better-gpt/tui": "0.1.0", "commander": "15.0.0", "@clack/prompts": "1.8.1" }
+}

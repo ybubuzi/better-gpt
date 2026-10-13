@@ -1,0 +1,7 @@
+name: better_gpt_legacy_hive
+description: Read-only Codexter Hive 2 migration bridge
+publish_to: none
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  hive: 2.2.3

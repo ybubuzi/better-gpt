@@ -1,0 +1,36 @@
+{
+  "name": "better-gpt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform local MCP gateway with per-workspace tunnels",
+  "type": "module",
+  "engines": {
+    "node": ">=24.21.0",
+    "npm": ">=11"
+  },
+  "packageManager": "npm@11.19.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @better-gpt/contracts && npm run build -w @better-gpt/core",
+    "build": "npm run build:packages && npm run build -w @better-gpt/tui && npm run build -w @better-gpt/cli",
+    "typecheck": "npm run build:packages && npm run build -w @better-gpt/tui && npm run typecheck --workspaces --if-present",
+    "dev": "npm run build && tsx apps/cli/src/index.ts",
+    "start": "node apps/cli/dist/index.js",
+    "prestart": "npm run build",
+    "cli": "node apps/cli/dist/index.js",
+    "migration:build": "node scripts/build-legacy.mjs",
+    "check": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "typescript": "7.0.2",
+    "tsx": "4.23.15"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

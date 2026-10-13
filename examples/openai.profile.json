@@ -1,0 +1,6 @@
+{
+  "name": "OpenAI 入口",
+  "provider": "openai",
+  "tunnelId": "tunnel_0123456789abcdef0123456789abcdef",
+  "runtimeKeyRef": "keychain:openai/example"
+}

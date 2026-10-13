@@ -1,0 +1,8 @@
+{
+  "name": "自建服务器入口",
+  "provider": "frp",
+  "publicBaseUrl": "https://self.example.com",
+  "serverAddress": "tunnel.example.com",
+  "serverPort": 7000,
+  "credentialRef": "keychain:frp/example"
+}
