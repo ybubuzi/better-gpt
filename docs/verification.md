@@ -27,6 +27,18 @@
 - Hive兼容工具使用锁文件在隔离用户缓存编译成功，空盒内存解码正常。此项不替代完整旧配置迁移验收。
 - 最终tarball独立安装后`npm audit --omit=dev`为0项漏洞；移除通用代理组件的PAC/FTP链。HTTP及SOCKS5代理分别请求HTTP和HTTPS目标均返回200。
 
+## Node 22 与第二台 Windows 11 发布包验证
+
+- 最低运行要求调整为 Node.js 22.12.0、npm 10.9.0；当前 Commander 15 要求 Node >=22.12.0，Ink 8 要求 Node >=22。发布构建目标同步为 node22.12，开发机仍使用 Node 24。
+- 第二台 Windows 11 x64 原先没有 better-gpt 配置；仅传输npm tarball与验证脚本，不复制源码或node_modules。使用三个独立安装目录及全新npm缓存，并开启engine-strict。
+- Node 22.12.0/npm 10.9.0、Node 22.23.3/npm 10.9.9、现有Node 24.11.0/npm 11.6.1均安装成功，运行依赖审计为0项漏洞。
+- 三个版本均实际调用全部15项工具：文件/图片/搜索worker/代码概要、异步命令轮询、Skills、加密STDIO下游MCP和summary。目录包含中文和空格；越界读取及非零退出的错误日志正常；前后台配置一致，明确停止后服务退出。
+- 两个Node 22版本均打开TUI并正常q退出；22.23.3额外验证模块选择、Skills显示及重新连接。q退出时后台PID保持不变。
+- 公钥SSH登录会话访问Windows凭据库报ERROR_NO_SUCH_LOGON_SESSION；相同用户已登录桌面会话中读写及加密下游调用成功。验证使用同一用户、Limited权限的临时按需任务，没有自动触发器，完成后删除。
+- 本次机器上，SSH会话启动的后台在SSH断开后结束；从桌面用户会话启动的后台经TUI退出、SSH断开与新连接查询后仍保持同一PID。此差异不能用Node版本变化解释，不能把SSH登录当成桌面凭据会话。
+- 测试服务、临时任务和凭据项均清理，系统原有Node 24.11.0和默认better-gpt数据目录保持原状。验证目录保留以便复核。
+- 本次未验证真实公网隧道、完整Codexter迁移、桌面剪贴板及macOS/Linux；ChatGPT运行器仍缺失。
+
 ## 未覆盖的环境
 
 - macOS与Linux尚未进行实机验收。

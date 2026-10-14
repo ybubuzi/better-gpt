@@ -6,7 +6,7 @@ CLI、独立后台、SSH ProxyCommand 和 grep worker 单独生成；不分发�
 
 ## 发布前验证
 
-使用 Windows native Node 24.21.0 或以上、npm 11 或以上：
+使用 Windows native Node 22.12.0 或以上、npm 10.9.0 或以上：
 
 ```powershell
 npm ci

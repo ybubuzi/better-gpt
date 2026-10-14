@@ -34,7 +34,7 @@ const result = await build({
   },
   // Three directory levels preserve legacy-hive's package root lookup; helpers stay beside the entry points.
   outdir: join(output, 'apps/cli'),
-  bundle: true, format: 'esm', platform: 'node', target: 'node24', packages: 'external', alias,
+  bundle: true, format: 'esm', platform: 'node', target: 'node22.12', packages: 'external', alias,
   splitting: false, sourcemap: false, metafile: true, logLevel: 'info',
 });
 for (const entry of Object.values(result.metafile.outputs)) {
