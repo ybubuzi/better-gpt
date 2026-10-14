@@ -3,6 +3,33 @@
 通过 **TUI / CLI** 管理本地 MCP 服务、工作区和独立隧道绑定。
 面向个人多台电脑，目标平台为 Windows、macOS、Linux。没有桌面客户端或浏览器界面。
 
+## npm 安装与发布
+
+发布到 npm 后可直接启动，无需克隆仓库、安装 TypeScript 或单独发布内部工作区包：
+
+```text
+npx better-gpt
+npm install -g better-gpt
+better-gpt
+better-gpt --help
+```
+
+需要 Node.js 24.21.0 或以上及 npm 11 或以上。当前版本为 0.1.0，使用 MIT 许可证。
+已支持的范围和缺口见下文，尤其是 ChatGPT 隧道目前只保存配置，连接运行器尚未实现。
+
+发布者在仓库根目录执行：
+
+```text
+npm ci
+npm run typecheck
+npm pack --dry-run
+npm publish --access public
+```
+
+`prepack` 会编译并生成独立 CLI、后台、SSH 代理适配器和搜索 worker；第三方运行依赖由 npm 安装。
+发布文件使用白名单，不包含个人配置、凭据、日志、验证目录或本机二进制。迁移所需 Dart 源码和锁文件随包分发，首次迁移仍需 Dart 3；兼容程序在用户数据目录的 `cache/legacy-hive` 中构建，安装目录不必可写。
+发布流程和本地 tarball 验证步骤见 [npm 发布说明](docs/npm-release.md)。
+
 ## 当前交付范围
 
 这是可运行的迁移版本，Codexter的14个基础工具已经接入；完整产品仍有待迁移项，见功能清单。
@@ -26,6 +53,7 @@
 - SSH简化向导：先授权再发现`.ssh`别名/候选密钥，自动继承端口与用户；支持拒绝扫描后手动填写。名称和端口等收进高级设置，域名默认兼作主机地址；TUI/CLI共用默认值。
 
 尚未实现：OpenAI运行器、全部配置编辑界面、日志持久化、完整OAuth交互和系统开机自启动安装。
+CF 和 ChatGPT 的配置入口在项目菜单“绑定 / 更换隧道”。CF 当前引导导入已有域名和凭据文件，尚未提供浏览器登录、创建隧道及自动配置 DNS 的完整流程；ChatGPT 引导保存 Tunnel ID 和 Runtime Key，尚不能建立连接。
 已配置的隧道不会被显示为已连接。命令子进程会继承对应代理环境；这不代表所有外部程序都会使用代理。
 
 ## 开发环境
@@ -74,6 +102,7 @@ TUI 默认连接独立后台：按 s 启动 MCP 与隧道，按 q 或 Ctrl+C 只
 | n / r | 新建工作区 / 刷新配置并尝试重连后台 |
 | s | 联动启停后台 MCP 和已绑定隧道；管理后台保持待命 |
 | p | 聚焦项目菜单：绑定/换绑、解绑、启停、复制地址、删除管理记录 |
+| d | 对照客户端和后台加载的配置文件、工作区名称、UUID与项目绝对路径；绑定页也可按d |
 | u | 按Cloudflare、自定义、ChatGPT或全部范围启停公网入口 |
 | t | 一键启动 / 恢复全部已启用工作区的公网入口，包含已单独暂停的项目 |
 | ? / q | 查看帮助 / 退出管理界面，服务继续运行 |
@@ -129,6 +158,10 @@ Windows 停止连接器时清理本次进程树并设有界等待，原生连接
 - 覆盖：`BETTER_GPT_DATA_DIR`，或 CLI 全局选项 `--data-dir`。
 
 新项目不写入 `codexter` / `codexter-dev` 数据目录。
+配置加载诊断：运行 `npm run cli -- diagnostics`，或在TUI按`d`。输出包含客户端/后台PID、入口、工作目录、配置名义路径、实际物理路径、指纹，以及全部工作区名称、UUID、项目绝对路径和绑定。`--json`可输出结构化数据。
+加载与绑定日志自动写入数据目录的`runtime/diagnostics/client-<PID>.jsonl`及`daemon-<PID>.jsonl`；绑定请求使用同一requestId关联两侧记录。日志只记录指定元数据，不记录密钥、代理密码或Agent指令。
+
+Windows打包应用可能将AppData文件重定向到`%LOCALAPPDATA%/Packages/<package>/LocalCache/Roaming`。同一个名义配置路径可能对应不同物理文件；应用使用实际写入的存储标识生成后台控制通道，并在绑定前核对物理配置路径，避免普通终端误连容器内的后台。升级后需退出旧TUI再运行`npm start`；系统凭据和两份既有配置继续保留，不自动合并。
 `migration-inspect` 只读取已知文件的存在性和大小，不解析 Hive、不读取系统密钥、不启动迁移。
 
 ## 导入旧版数据

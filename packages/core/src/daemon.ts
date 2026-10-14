@@ -1,25 +1,34 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createConnection, createServer, type Socket } from 'node:net';
 import { chmod, lstat, mkdir, open, readFile, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Application } from './application.js';
 import { assertNoDestinationLinks } from './destination-guard.js';
 import type { CallLog, ManagedProcessView, TunnelRuntime } from '@better-gpt/contracts';
+import type { BindDiagnosticContext } from './configuration-diagnostics.js';
+import { storageIdentityPath } from './storage-identity.js';
 
 export interface DaemonState {
+  dataDirectory?: string; configPath?: string; diagnosticsLog?: string; storageIdentityFile?: string;
   pid: number; instanceId: string; workspaceId: string; serviceOrigin: string; serviceError: string;
   logs: CallLog[]; tunnels: TunnelRuntime[]; processes: ManagedProcessView[];
   mcps?: Record<string, unknown>[];
   summary?: { workspaceId: string; title: string; text: string; endedAt: string };
 }
-export function daemonEndpoint(directory: string): string {
+export function legacyDaemonEndpoint(directory: string): string {
   const identity = process.platform === 'win32' ? resolve(directory).toLowerCase() : resolve(directory);
   const hash = createHash('sha256').update(identity).digest('hex').slice(0, 24);
   return process.platform === 'win32' ? `\\\\.\\pipe\\better-gpt-${hash}` : join(directory, 'runtime', 'control.sock');
 }
-export function connectDaemon(directory: string): Promise<Socket> {
+export async function daemonEndpoint(directory: string): Promise<string> {
+  const physical = await storageIdentityPath(directory), identity = process.platform === 'win32' ? physical.toLowerCase() : physical;
+  const hash = createHash('sha256').update(identity).digest('hex').slice(0, 24);
+  return process.platform === 'win32' ? `\\\\.\\pipe\\better-gpt-v2-${hash}` : join(dirname(physical), 'control.sock');
+}
+export async function connectDaemon(directory: string, legacy = false): Promise<Socket> {
+  const endpoint = legacy ? legacyDaemonEndpoint(directory) : await daemonEndpoint(directory);
   return new Promise((resolveConnection, reject) => {
-    const socket = createConnection(daemonEndpoint(directory));
+    const socket = createConnection(endpoint);
     const timer = setTimeout(() => socket.destroy(new Error('后台服务连接超时')), 1500);
     socket.once('connect', () => { clearTimeout(timer); resolveConnection(socket); });
     socket.once('error', (error) => { clearTimeout(timer); reject(error); });
@@ -28,19 +37,19 @@ export function connectDaemon(directory: string): Promise<Socket> {
 
 /** Local IPC only: Windows named pipe / permission-restricted Unix socket. No public control URL. */
 export async function runDaemon(directory: string): Promise<void> {
-  const app = new Application(directory);
+  const app = new Application(directory, 'daemon');
   const runtimeDirectory = join(directory, 'runtime');
   const metadataPath = join(runtimeDirectory, 'service.json');
   await assertNoDestinationLinks(directory, metadataPath);
   await mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
-  const endpoint = daemonEndpoint(directory), instanceId = randomUUID();
+  const endpoint = await daemonEndpoint(directory), storageIdentityFile = await storageIdentityPath(directory), instanceId = randomUUID();
   const sockets = new Set<Socket>();
   let stopping = false;
   let closeOperation: Promise<void> | undefined;
   const server = createServer((socket) => {
     sockets.add(socket); let buffer = '', workspaceId = '', detailKind = '', detailId: string | number | undefined; let dirty = true;
     const crop = (text: string, limit: number) => text.length <= limit ? text : `${text.slice(0, limit)}\n[列表摘要已截断，Enter 打开完整详情]`;
-    const state = (): DaemonState => ({ pid: process.pid, instanceId, workspaceId,
+    const state = (): DaemonState => ({ pid: process.pid, instanceId, workspaceId, dataDirectory: resolve(app.store.directory), configPath: resolve(app.store.path), diagnosticsLog: app.diagnostics.logPath, storageIdentityFile,
       serviceOrigin: app.runtime.serviceOrigin, serviceError: app.runtime.serviceError,
       mcps: app.runtime.mcps, ...(app.runtime.summary ? { summary: app.runtime.summary } : {}),
       logs: app.runtime.logs(workspaceId).map((log) => detailKind === 'log' && log.id === detailId ? log : { ...log,
@@ -86,6 +95,7 @@ export async function runDaemon(directory: string): Promise<void> {
             let result: unknown;
             switch (request.method) {
               case 'state': result = state(); break;
+              case 'diagnostics': result = await app.configurationDiagnostics(); break;
               case 'watch':
                 workspaceId = typeof params.workspaceId === 'string' ? params.workspaceId : '';
                 detailKind = typeof params.detailKind === 'string' ? params.detailKind : '';
@@ -102,7 +112,7 @@ export async function runDaemon(directory: string): Promise<void> {
               case 'tunnels': result = await app.controlTunnels(params); break;
               case 'workspaceBind':
                 if (typeof params.workspaceId !== 'string') throw new Error('工作区参数无效');
-                result = await app.bindWorkspace(params.workspaceId, params.binding); break;
+                result = await app.bindWorkspace(params.workspaceId, params.binding, params.diagnostic as BindDiagnosticContext | undefined); break;
               case 'workspaceRemove':
                 if (typeof params.workspaceId !== 'string') throw new Error('工作区参数无效');
                 result = await app.removeWorkspace(params.workspaceId); break;
@@ -169,7 +179,7 @@ export async function runDaemon(directory: string): Promise<void> {
   }
   await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(endpoint, () => { server.off('error', reject); done(); }); });
   if (process.platform !== 'win32') await chmod(endpoint, 0o600);
-  await writeFile(metadataPath, JSON.stringify({ version: 1, pid: process.pid, instanceId, endpoint, startedAt: new Date().toISOString() }), { mode: 0o600 });
+  await writeFile(metadataPath, JSON.stringify({ version: 2, pid: process.pid, instanceId, endpoint, storageIdentityFile, startedAt: new Date().toISOString() }), { mode: 0o600 });
   } catch (error) {
     initializationError = error;
   } finally {
@@ -181,6 +191,7 @@ export async function runDaemon(directory: string): Promise<void> {
     if (server.listening) await new Promise<void>((done) => server.close(() => done()));
     await app.dispose(); throw initializationError;
   }
+  await app.configurationDiagnostics();
   const signal = () => { void shutdown().catch((error: unknown) => { process.stderr.write(app.runtime.redact(String(error)) + '\n'); process.exitCode = 1; }); };
   process.on('SIGINT', signal); process.on('SIGTERM', signal);
 }

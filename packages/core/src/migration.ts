@@ -172,7 +172,7 @@ export class MigrationService {
   constructor(private readonly store: ConfigStore) {}
 
   private async source(directory: string): Promise<LegacySource> {
-    const source = await loadLegacySource(directory);
+    const source = await loadLegacySource(directory, this.store.directory);
     async function canonicalDestination(path: string): Promise<string> {
       try { return await realpath(path); }
       catch (error) {

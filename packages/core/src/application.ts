@@ -22,9 +22,11 @@ import { SecretVault } from './secret-vault.js';
 import { tunnelMatches } from './tunnels.js';
 import { discoverSshConnections } from './ssh-discovery.js';
 import { assertNoDestinationLinks } from './destination-guard.js';
+import { ConfigurationDiagnostics, compareConfiguration, type BindDiagnosticContext, type DiagnosticRole, type ConfigurationComparison } from './configuration-diagnostics.js';
 
 export class Application {
   readonly store: ConfigStore;
+  readonly diagnostics: ConfigurationDiagnostics;
   readonly migration: MigrationService;
   readonly runtime = new RuntimeStore();
   private readonly deletedWorkspaces = new Set<string>();
@@ -48,15 +50,19 @@ export class Application {
   private stopping: Promise<void> | undefined;
   private tunnelControl: Promise<unknown> = Promise.resolve();
   private controlGeneration = 0;
-  constructor(directory = dataDirectory()) {
+  constructor(directory = dataDirectory(), role: DiagnosticRole = 'application') {
     this.store = new ConfigStore(directory);
+    this.diagnostics = new ConfigurationDiagnostics(this.store, role);
     this.migration = new MigrationService(this.store);
   }
 
   async snapshot(): Promise<AppSnapshot> {
     const [{ config, initialized }, legacy] = await Promise.all([this.store.read(), discoverLegacy()]);
+    await this.diagnostics.capture(config);
     return { version: appVersion, platform: platform(), dataDirectory: this.store.directory, initialized, config, legacy };
   }
+  async configurationDiagnostics() { return this.diagnostics.capture((await this.store.read()).config, 'configuration.requested', true); }
+  async diagnoseConfiguration(): Promise<ConfigurationComparison> { return compareConfiguration(await this.configurationDiagnostics(), null, '独立Application，没有连接独立后台'); }
   async initialize(): Promise<AppSnapshot> {
     await this.store.update((config) => config);
     return this.snapshot();
@@ -128,11 +134,16 @@ export class Application {
       workspaces: current.workspaces.map((workspace) => workspaceIds.includes(workspace.uuid) ? { ...workspace, tunnelBinding: { profileId: profile.id } } : workspace) }));
     return profile;
   }
-  bindWorkspace(uuid: string, raw: unknown) {
+  bindWorkspace(uuid: string, raw: unknown, context?: BindDiagnosticContext) {
     const binding = raw === null ? null : tunnelBindingSchema.parse(raw);
+    const requestId = context?.requestId ?? randomUUID();
     return this.workspaceMutation(async () => {
-      const config = await this.store.update((current) => {
-        if (!current.workspaces.some((workspace) => workspace.uuid === uuid)) throw new Error('工作区不存在');
+      const config = await this.store.update(async (current) => {
+        const found = current.workspaces.find((workspace) => workspace.uuid === uuid);
+        const report = await this.diagnostics.capture(current, 'binding.configuration', true);
+        await this.diagnostics.record('binding.lookup', { requestId, workspaceId: uuid, profileId: binding?.profileId ?? null, found: !!found,
+          selection: context?.selection ? { uuid: context.selection.uuid, name: context.selection.name, projectRoot: context.selection.projectRoot } : null, report });
+        if (!found) throw new Error(`工作区不存在：UUID ${uuid}；后台配置 ${report.configPath}。请按 d 查看前后台加载记录。`);
         return { ...current, workspaces: current.workspaces.map((workspace) => workspace.uuid === uuid ? { ...workspace, tunnelBinding: binding,
           ...(workspace.tunnelBinding?.openAiTunnelId ? { legacyOpenAiTunnelId: workspace.tunnelBinding.openAiTunnelId } : {}) } : workspace) };
       });
@@ -141,10 +152,11 @@ export class Application {
       if (binding && this.localService && workspace.enabled && workspace.tunnelEnabled && !this.stopping) {
         const views = await this.tunnels.start(config, binding.profileId);
         const failed = views.find((entry) => entry.status === 'failed');
-        if (failed) return { warning: `绑定已保存；${failed.error}` };
+        if (failed) { await this.diagnostics.record('binding.tunnel-failed', { requestId, workspaceId: uuid, profileId: binding.profileId, error: failed.error }); return { warning: `绑定已保存；${failed.error}` }; }
       }
+      await this.diagnostics.capture(config, 'binding.saved', true);
       this.runtime.changed(); return {} as { warning?: string };
-    });
+    }).catch(async (error: unknown) => { await this.diagnostics.record('binding.failed', { requestId, workspaceId: uuid, configPath: resolve(this.store.path), error: this.runtime.redact(error instanceof Error ? error.message : '绑定失败') }); throw error; });
   }
   removeWorkspace(uuid: string) {
     return this.workspaceMutation(async () => {

@@ -93,7 +93,7 @@ export function legacySkillMetadata(source: string, fallbackName: string): { nam
   return { name, description };
 }
 
-export async function loadLegacySource(sourceDirectory: string): Promise<LegacySource> {
+export async function loadLegacySource(sourceDirectory: string, cacheDirectory?: string): Promise<LegacySource> {
   const directory = await realpath(resolve(sourceDirectory));
   const rawFiles: Record<string, Buffer> = {};
   for (const name of hiveNames) {
@@ -104,7 +104,7 @@ export async function loadLegacySource(sourceDirectory: string): Promise<LegacyS
   }
   const yml = await optionalFile(join(directory, 'cloudflared.yml'));
   if (yml) rawFiles['cloudflared.yml'] = yml;
-  const hive = await decodeHive(rawFiles);
+  const hive = await decodeHive(rawFiles, cacheDirectory);
   rawFields(hive, 'global_config', 0);
   const globals = hive.boxes.global_config ?? [];
   const saved = globals.find((row) => row.key === 'config');

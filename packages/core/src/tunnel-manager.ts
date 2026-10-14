@@ -90,6 +90,8 @@ export class TunnelManager {
 
   private log(session: Session, text: string): void {
     session.view.output = (session.view.output + this.app.runtime.redact(text) + '\n').slice(-32_000);
+    if (session.view.provider === 'ssh') void this.app.diagnostics.record('ssh.connector-output', { profileId: session.view.profileId, profileName: session.view.name,
+      status: session.view.status, message: this.app.runtime.redact(text).slice(0, 8000) });
     this.app.runtime.changed();
   }
 
@@ -203,6 +205,11 @@ export class TunnelManager {
     const token = profile.provider === 'frp' ? (await new SecretVault(this.app.store.directory).read(profile.credentialRef)).toString('utf8').trim() : '';
     if (profile.provider === 'frp' && !token) throw new Error('frp运行凭据为空'); if (token) this.app.runtime.protectSecret(token);
     const proxy = profile.proxy ?? config.proxy, address = await proxyAddress(proxy, this.app.store.directory);
+    await this.app.diagnostics.record('tunnel.starting', { profileId: profile.id, provider: profile.provider, name: profile.name,
+      serverAddress: profile.serverAddress, serverPort: profile.serverPort, remotePort: profile.remotePort, publicBaseUrl: profile.publicBaseUrl,
+      ...(profile.provider === 'ssh' ? { sshHostAlias: profile.sshHostAlias ?? null, sshConfigFile: profile.sshConfigFile ?? null, knownHostsFile: profile.knownHostsFile } : {}),
+      effectiveProxyMode: proxy.mode, profileProxyOverride: !!profile.proxy,
+      workspaces: plan.workspaces.map((workspace) => workspace.uuid) });
     if (profile.provider === 'frp' && address && !['http:', 'socks5:', 'socks5h:'].includes(new URL(address).protocol)) throw new Error('frpc仅支持HTTP/SOCKS5代理，请为此隧道设置对应代理');
     if (address) this.app.runtime.protectSecret(address);
     session.controller.signal.throwIfAborted();
@@ -225,7 +232,14 @@ export class TunnelManager {
     child.once('error', (error) => { session.view.error = this.app.runtime.redact(error.message); });
     for (const stream of [child.stdout, child.stderr]) {
       stream.setEncoding('utf8'); let pending = '';
-      stream.on('data', (chunk: string) => { pending += chunk; let index: number; while ((index = pending.indexOf('\n')) >= 0) { const line = pending.slice(0, index).replace(/\r$/, ''); pending = pending.slice(index + 1); if (!line.startsWith('__BETTER_GPT_NATIVE__')) this.log(session, line); } if (pending.length > 128000) pending = ''; });
+      const line = (value: string) => {
+        if (value.startsWith('__BETTER_GPT_NATIVE__')) return;
+        this.log(session, value);
+        if (profile.provider === 'ssh' && /remote port forwarding failed for listen port|cannot listen to port/i.test(value)) session.view.error = `SSH远端转发端口 ${profile.remotePort} 申请失败：可能已被占用或服务器禁止转发。原始信息：${this.app.runtime.redact(value)}`;
+        else if (profile.provider === 'ssh' && !session.view.error && /Connection closed by UNKNOWN port|kex_exchange_identification|SSH代理连接失败/i.test(value)) session.view.error = `SSH连接或代理握手失败（服务器端口 ${profile.serverPort}，远端转发端口 ${profile.remotePort}）：${this.app.runtime.redact(value)}`;
+      };
+      stream.on('data', (chunk: string) => { pending += chunk; let index: number; while ((index = pending.indexOf('\n')) >= 0) { line(pending.slice(0, index).replace(/\r$/, '')); pending = pending.slice(index + 1); } if (pending.length > 128000) pending = ''; });
+      stream.on('end', () => { if (pending) line(pending.replace(/\r$/, '')); });
     }
     child.once('close', (code) => {
       session.closed = true;
@@ -246,7 +260,7 @@ export class TunnelManager {
     this.log(session, `${profile.provider}连接器已启动；远端回环端口${profile.remotePort}，仅转发${plan.workspaces.length}个绑定工作区。`);
     const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
-      session.controller.signal.throwIfAborted(); if (session.closed) throw new Error(`${profile.provider}在公网入口就绪前退出，请查看日志`);
+      session.controller.signal.throwIfAborted(); if (session.closed) throw new Error(session.view.error || `${profile.provider}在公网入口就绪前退出，请查看诊断日志 ${this.app.diagnostics.logPath}`);
       if (await session.probe()) {
         session.controller.signal.throwIfAborted(); if (session.closed || child.exitCode !== null || child.signalCode !== null) throw new Error(`${profile.provider}在检查期间退出`);
         session.view.status = 'connected'; session.view.connectedAt = Date.now(); this.log(session, '自建HTTPS入口已验证，工作区入口身份匹配。');

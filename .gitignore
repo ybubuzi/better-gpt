@@ -7,7 +7,10 @@ work/
 .env.*
 !.env.example
 *.log
+log.txt
+*.tgz
 *.tsbuildinfo
 .dart_tool/
+.pub-cache/
 .build/
 .DS_Store

@@ -14,3 +14,4 @@ export * from './secret-vault.js';
 export * from './network.js';
 export * from './ssh-discovery.js';
 export * from './setup-defaults.js';
+export * from './configuration-diagnostics.js';

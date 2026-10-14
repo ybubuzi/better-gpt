@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { PasswordInput, Select, TextInput } from '@inkjs/ui';
 import { providerSetupSchema, tunnelIdSchema, type AppConfig, type TunnelProfile, type Workspace } from '@better-gpt/contracts';
 
-export function WorkspaceBinding({ workspace, config, onBind, onConfigure, onSharedId, onNew, onCancel, height, disabled = false }: {
+export function WorkspaceBinding({ workspace, config, onBind, onConfigure, onSharedId, onNew, onCancel, onDiagnostics, height, disabled = false }: {
   workspace: Workspace; config: AppConfig; height: number; disabled?: boolean;
   onBind(profile: TunnelProfile): void; onConfigure(raw: unknown): void;
   onSharedId(profile: TunnelProfile, tunnelId: string): void; onNew(): void; onCancel(): void;
+  onDiagnostics(): void;
 }) {
   const [mode, setMode] = useState<'list' | 'profiles' | 'shared-id' | 'setup'>('list');
   const [provider, setProvider] = useState<'cloudflare' | 'openai'>('cloudflare');
@@ -17,6 +18,7 @@ export function WorkspaceBinding({ workspace, config, onBind, onConfigure, onSha
   const cf = config.tunnelProfiles.filter((entry) => entry.provider === 'cloudflare');
   const gpt = config.tunnelProfiles.filter((entry) => entry.provider === 'openai');
   const custom = config.tunnelProfiles.filter((entry) => !['cloudflare', 'openai'].includes(entry.provider));
+  useInput((input) => { if (!disabled && (mode === 'list' || mode === 'profiles') && input === 'd') onDiagnostics(); });
   function choose(entry: TunnelProfile) {
     if (disabled) return;
     if (entry.provider === 'openai' && !entry.tunnelId) {
@@ -62,10 +64,10 @@ export function WorkspaceBinding({ workspace, config, onBind, onConfigure, onSha
         { label: `CF${cf.length ? ' · 已配置' : ' · 首次配置'}`, value: 'cf' },
         { label: `ChatGPT${gpt.length ? ' · 已配置' : ' · 首次配置'}`, value: 'gpt' },
         ...custom.map((entry) => ({ label: `${entry.name} · ${entry.provider}${entry.enabled ? '' : '（已停用）'}`, value: `profile:${entry.id}` })),
-        { label: '新建 SSH/frp 隧道', value: 'new' }, { label: '暂不绑定 / 返回', value: 'back' },
+        { label: '新建 SSH/frp 隧道', value: 'new' }, { label: 'd 查看前后台加载诊断', value: 'diagnostics' }, { label: '暂不绑定 / 返回', value: 'back' },
       ]} onChange={(value) => {
         if (value === 'cf' || value === 'gpt') category(value === 'cf' ? 'cloudflare' : 'openai');
-        else if (value === 'new') onNew(); else if (value === 'back') onCancel();
+        else if (value === 'new') onNew(); else if (value === 'back') onCancel(); else if (value === 'diagnostics') onDiagnostics();
         else { const entry = config.tunnelProfiles.find((entry) => entry.id === value.slice(8)); if (entry) choose(entry); }
       }} />
     </>}

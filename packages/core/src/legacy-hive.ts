@@ -3,33 +3,43 @@ import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { join } from 'node:path';
+import { dataDirectory } from './paths.js';
+import { assertNoDestinationLinks } from './destination-guard.js';
 
 export interface RawRecord { key: string | number; value: { typeId: number; fields: Record<string, unknown> } }
 export interface HiveExport { formatVersion: 1; boxes: Record<string, RawRecord[]> }
 export const hiveNames = ['global_config', 'workspaces', 'skills', 'downstream_mcps'] as const;
 const root = new URL('../../../', import.meta.url);
-const executable = fileURLToPath(new URL(`tools/legacy-hive/.build/legacy-hive${process.platform === 'win32' ? '.exe' : ''}`, root));
-let preparation: Promise<void> | undefined;
+const preparations = new Map<string, Promise<string>>();
 
-async function ensureBridge(): Promise<void> {
+async function ensureBridge(directory: string): Promise<string> {
+  const hash = createHash('sha256');
+  for (const file of ['bin/export.dart', 'pubspec.yaml', 'pubspec.lock']) hash.update(await readFile(new URL(`tools/legacy-hive/${file}`, root)));
+  const fingerprint = hash.digest('hex');
+  const bridge = join(directory, 'cache', 'legacy-hive', `${process.platform}-${process.arch}-${fingerprint}`);
+  const executable = join(bridge, '.build', `legacy-hive${process.platform === 'win32' ? '.exe' : ''}`);
+  for (const file of ['bin/export.dart', 'pubspec.yaml', 'pubspec.lock', '.build/source.sha256', `.build/legacy-hive${process.platform === 'win32' ? '.exe' : ''}`, '.pub-cache/marker']) await assertNoDestinationLinks(directory, join(bridge, file));
   try {
     await access(executable);
-    const hash = createHash('sha256').update(await readFile(new URL('tools/legacy-hive/bin/export.dart', root)))
-      .update(await readFile(new URL('tools/legacy-hive/pubspec.lock', root))).digest('hex');
-    if ((await readFile(new URL('tools/legacy-hive/.build/source.sha256', root), 'utf8')).trim() === hash) return;
+    if ((await readFile(join(bridge, '.build', 'source.sha256'), 'utf8')).trim() === fingerprint) return executable;
   } catch {}
-  preparation ??= (async () => {
+  const existing = preparations.get(bridge);
+  if (existing) return existing;
+  const preparation = (async () => {
     try {
       await promisify(execFile)(process.execPath, [fileURLToPath(new URL('scripts/build-legacy.mjs', root))], {
-        windowsHide: true, timeout: 180_000, maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true, timeout: 180_000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, BETTER_GPT_BRIDGE_DIR: bridge },
       });
-    } catch { throw new Error('Hive 兼容工具准备失败。请运行 npm run migration:build 查看依赖或 Dart 环境错误。'); }
-  })().finally(() => { preparation = undefined; });
-  await preparation;
+    } catch { throw new Error('Hive 兼容工具准备失败；首次迁移需要 Dart 3，请检查 BETTER_GPT_DART、下载代理和用户缓存目录权限。'); }
+    return executable;
+  })().finally(() => { preparations.delete(bridge); });
+  preparations.set(bridge, preparation);
+  return preparation;
 }
 
-export async function decodeHive(files: Record<string, Buffer>): Promise<HiveExport> {
-  await ensureBridge();
+export async function decodeHive(files: Record<string, Buffer>, directory = dataDirectory()): Promise<HiveExport> {
+  const executable = await ensureBridge(directory);
   const input = JSON.stringify(Object.fromEntries(hiveNames.map((name) => [name, files[`${name}.hive`]?.toString('base64') ?? ''])));
   const output = await new Promise<string>((resolve, reject) => {
     const child = spawn(executable, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });

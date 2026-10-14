@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { Select, TextInput, Spinner } from '@inkjs/ui';
-import { planTunnels } from '@better-gpt/core';
+import { planTunnels, formatConfigurationDiagnostics, type ConfigurationComparison } from '@better-gpt/core';
 import type { TuiApplication } from './application.js';
 import { workspaceEndpoint, tunnelStatusLabels, type AppSnapshot, type ProxyConfig, type MigrationPreview, type MigrationResult } from '@better-gpt/contracts';
 import { copyToClipboard, workspaceCopyTarget } from './clipboard.js';
 import { TunnelSetup } from './self-hosted-setup.js';
 import { WorkspaceBinding } from './workspace-binding.js';
+import { TextViewport, wrappedLines } from './view.js';
 
-export type ManagementPage = 'home' | 'workspaces' | 'workspace-detail' | 'workspace-bind' | 'workspace-delete' | 'add-name' | 'add-path' | 'tunnels' | 'tunnel-setup' | 'migration' | 'migration-path' | 'migration-preview' | 'migration-result' | 'proxy' | 'proxy-url';
+export type ManagementPage = 'home' | 'workspaces' | 'workspace-detail' | 'workspace-bind' | 'workspace-delete' | 'add-name' | 'add-path' | 'tunnels' | 'tunnel-setup' | 'migration' | 'migration-path' | 'migration-preview' | 'migration-result' | 'proxy' | 'proxy-url' | 'diagnostics';
 
-export function ManagementPanel({ application, initialPage, initialWorkspaceId, onClose, onExit, onChanged, onBusyChange, height }: {
-  application: TuiApplication; initialPage: ManagementPage; initialWorkspaceId?: string; onClose(): void; onExit(): void; onChanged(): Promise<void>; onBusyChange(busy: boolean): void; height: number;
+export function ManagementPanel({ application, initialPage, initialWorkspaceId, onClose, onExit, onChanged, onBusyChange, height, width = 80 }: {
+  application: TuiApplication; initialPage: ManagementPage; initialWorkspaceId?: string; onClose(): void; onExit(): void; onChanged(): Promise<void>; onBusyChange(busy: boolean): void; height: number; width?: number;
 }) {
   const [state, setState] = useState<AppSnapshot>();
   const [page, setPage] = useState<ManagementPage>(initialPage);
@@ -23,6 +24,9 @@ export function ManagementPanel({ application, initialPage, initialWorkspaceId, 
   const [migrationResult, setMigrationResult] = useState<MigrationResult>();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(initialWorkspaceId ?? '');
   const [bindingSetup, setBindingSetup] = useState(false);
+  const [diagnosticReport, setDiagnosticReport] = useState<ConfigurationComparison>();
+  const [diagnosticOffset, setDiagnosticOffset] = useState(0);
+  const [diagnosticReturn, setDiagnosticReturn] = useState<ManagementPage>('home');
   const exiting = useRef(false);
   const operation = useRef<Promise<void> | null>(null);
 
@@ -32,12 +36,24 @@ export function ManagementPanel({ application, initialPage, initialWorkspaceId, 
     setBusy(true); onBusyChange(critical); setFailure('');
     operation.current = (async () => {
       try { await action(); await refresh(); }
-      catch (error) { setFailure(error instanceof Error ? error.message : '操作失败'); }
+      catch (error) {
+        const message = error instanceof Error ? error.message : '操作失败';
+        if (message.includes('工作区不存在')) {
+          try { const latest = await application.snapshot(); setState(latest); await onChanged();
+            if (!latest.config.workspaces.some((workspace) => workspace.uuid === selectedWorkspaceId)) { setSelectedWorkspaceId(''); setPage('workspaces'); }
+          } catch {}
+        }
+        setFailure(message);
+      }
       finally { setBusy(false); onBusyChange(false); }
     })();
     await operation.current;
     operation.current = null;
-  }, [refresh, onBusyChange]);
+  }, [refresh, onBusyChange, application, onChanged, selectedWorkspaceId]);
+  const openDiagnostics = useCallback((returnPage: ManagementPage) => {
+    setDiagnosticReturn(returnPage); setDiagnosticOffset(0);
+    void perform(async () => { setDiagnosticReport(await application.diagnoseConfiguration()); setPage('diagnostics'); }, false);
+  }, [application, perform]);
 
   const quit = useCallback(async () => {
     if (exiting.current) return;
@@ -47,13 +63,22 @@ export function ManagementPanel({ application, initialPage, initialWorkspaceId, 
   }, [onClose]);
 
   useEffect(() => {
-    void refresh().catch((error: unknown) => setFailure(error instanceof Error ? error.message : '读取配置失败'));
-  }, [refresh]);
+    if (initialPage === 'diagnostics') openDiagnostics('home');
+    else void refresh().catch((error: unknown) => setFailure(error instanceof Error ? error.message : '读取配置失败'));
+  }, [refresh, initialPage, openDiagnostics]);
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') return;
     if (!['add-name', 'add-path', 'proxy-url', 'migration-path', 'tunnel-setup', 'workspace-bind'].includes(page) && input === 'q') { onExit(); return; }
     if (busy) return;
+    if (page === 'diagnostics') {
+      if (key.escape || input === 'd') { if (initialPage === 'diagnostics') void quit(); else setPage(diagnosticReturn); return; }
+      if (input === 'r') { openDiagnostics(diagnosticReturn); return; }
+      const delta = key.upArrow ? -1 : key.downArrow ? 1 : key.pageUp ? -(height - 4) : key.pageDown ? height - 4 : 0;
+      if (delta) setDiagnosticOffset((offset) => Math.min(Math.max(0, wrappedLines(diagnosticReport ? formatConfigurationDiagnostics(diagnosticReport) : '', width - 6).length - (height - 4)), Math.max(0, offset + delta)));
+      if (key.home || key.end) setDiagnosticOffset(key.home ? 0 : Math.max(0, wrappedLines(diagnosticReport ? formatConfigurationDiagnostics(diagnosticReport) : '', width - 6).length - (height - 4)));
+      return;
+    }
     if (key.escape) {
       if (page === 'tunnel-setup' && bindingSetup) setPage('workspace-bind');
       else if (page === initialPage || page === 'home') void quit();
@@ -71,12 +96,14 @@ export function ManagementPanel({ application, initialPage, initialWorkspaceId, 
     { label: application.runtime.serviceOrigin ? '停止 MCP 与公网隧道' : '启动 MCP 与公网隧道', value: 'service' },
     { label: '启动 / 重试已绑定的公网隧道', value: 'retry-tunnels' },
     { label: '刷新状态', value: 'refresh' },
+    { label: '加载配置诊断 · 前后台项目名称与绝对路径', value: 'diagnostics' },
     { label: '返回工作台', value: 'quit' },
   ];
 
   function onHomeAction(value: string) {
     if (value === 'quit') { void quit(); return; }
     if (value === 'refresh') { void perform(async () => { setNotice('状态已刷新'); }); return; }
+    if (value === 'diagnostics') { openDiagnostics('home'); return; }
     if (value === 'service' || value === 'retry-tunnels') {
       void perform(async () => {
         if (value === 'service' && application.runtime.serviceOrigin) { await application.stopService(); setNotice('本次启动的服务及隧道已停止'); }
@@ -183,10 +210,11 @@ export function ManagementPanel({ application, initialPage, initialWorkspaceId, 
           <Text dimColor>自建向导：CLI tunnel setup；入口检查：tunnel doctor。</Text>
         </Box>
       </>}
-      {page === 'workspace-bind' && selectedWorkspace && <WorkspaceBinding disabled={busy} workspace={selectedWorkspace} config={state.config} height={height - 2} onCancel={() => { setPage('workspace-detail'); setNotice(''); }} onNew={() => { setBindingSetup(true); setPage('tunnel-setup'); setNotice(''); }}
-        onBind={(profile) => { void perform(async () => { const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }); setPage('workspace-detail'); setNotice(result.warning ?? `已绑定 ${profile.name}；后续项目可直接复用。`); }); }}
-        onConfigure={(raw) => { void perform(async () => { const profile = await application.configureProviderTunnel(raw); const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }); setPage('workspace-detail'); setNotice(result.warning ?? '首次配置已保存并绑定，后续项目直接复用。'); }); }}
-        onSharedId={(profile, id) => { void perform(async () => { await application.setSharedOpenAiTunnelId(profile.id, id); const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }); setPage('workspace-detail'); setNotice(result.warning ?? '共享Tunnel ID已保存，所有绑定项目共用。'); }); }} />}
+      {page === 'workspace-bind' && selectedWorkspace && <WorkspaceBinding disabled={busy} workspace={selectedWorkspace} config={state.config} height={height - 2} onCancel={() => { setPage('workspace-detail'); setNotice(''); }} onNew={() => { setBindingSetup(true); setPage('tunnel-setup'); setNotice(''); }} onDiagnostics={() => openDiagnostics('workspace-bind')}
+        onBind={(profile) => { void perform(async () => { const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }, { selection: selectedWorkspace }); setPage('workspace-detail'); setNotice(result.warning ?? `已绑定 ${profile.name}；后续项目可直接复用。`); }); }}
+        onConfigure={(raw) => { void perform(async () => { const profile = await application.configureProviderTunnel(raw); const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }, { selection: selectedWorkspace }); setPage('workspace-detail'); setNotice(result.warning ?? '首次配置已保存并绑定，后续项目直接复用。'); }); }}
+        onSharedId={(profile, id) => { void perform(async () => { await application.setSharedOpenAiTunnelId(profile.id, id); const result = await application.bindWorkspace(selectedWorkspace.uuid, { profileId: profile.id }, { selection: selectedWorkspace }); setPage('workspace-detail'); setNotice(result.warning ?? '共享Tunnel ID已保存，所有绑定项目共用。'); }); }} />}
+      {page === 'diagnostics' && <TextViewport lines={wrappedLines(diagnosticReport ? formatConfigurationDiagnostics(diagnosticReport) : '正在读取前后台配置…', width - 6)} height={Math.max(6, height - 2)} offset={diagnosticOffset} focus title="加载诊断 · r刷新 · Esc返回" />}
       {page === 'workspace-delete' && selectedWorkspace && <>
         <Text bold color="red">删除项目：{selectedWorkspace.name}？</Text><Text wrap="truncate-end">{selectedWorkspace.projectRoot}</Text>
         <Text>仅移除管理记录，项目文件和共享隧道配置保留。</Text>

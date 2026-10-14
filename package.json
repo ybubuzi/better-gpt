@@ -1,9 +1,25 @@
 {
   "name": "better-gpt",
   "version": "0.1.0",
-  "private": true,
   "description": "Cross-platform local MCP gateway with per-workspace tunnels",
+  "license": "MIT",
+  "author": "ybubuzi",
+  "repository": { "type": "git", "url": "git+https://github.com/ybubuzi/better-gpt.git" },
+  "homepage": "https://github.com/ybubuzi/better-gpt#readme",
+  "bugs": { "url": "https://github.com/ybubuzi/better-gpt/issues" },
   "type": "module",
+  "bin": { "better-gpt": "bin/better-gpt.mjs" },
+  "files": [
+    "bin/",
+    "dist/",
+    "docs/",
+    "examples/",
+    "scripts/build-legacy.mjs",
+    "tools/legacy-hive/bin/export.dart",
+    "tools/legacy-hive/pubspec.yaml",
+    "tools/legacy-hive/pubspec.lock"
+  ],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "engines": {
     "node": ">=24.21.0",
     "npm": ">=11"
@@ -22,13 +38,36 @@
     "prestart": "npm run build",
     "cli": "node apps/cli/dist/index.js",
     "migration:build": "node scripts/build-legacy.mjs",
-    "check": "npm run typecheck && npm run build"
+    "check": "npm run typecheck && npm run build",
+    "build:release": "node scripts/build-release.mjs",
+    "prepack": "npm run build && npm run build:release",
+    "prepublishOnly": "npm run typecheck"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.8.1",
+    "@inkjs/ui": "2.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@napi-rs/keyring": "2.1.1",
+    "commander": "15.0.0",
+    "diff": "9.0.0",
+    "http-proxy-agent": "9.1.0",
+    "https-proxy-agent": "9.1.0",
+    "ink": "8.0.0",
+    "react": "19.3.0",
+    "sharp": "0.35.5",
+    "socks": "2.8.10",
+    "socks-proxy-agent": "10.1.0",
+    "wrap-ansi": "10.0.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "typescript": "7.0.2",
-    "tsx": "4.23.15"
+    "tsx": "4.23.15",
+    "esbuild": "0.28.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true

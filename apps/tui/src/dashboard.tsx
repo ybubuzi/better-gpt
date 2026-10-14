@@ -190,6 +190,7 @@ export function Dashboard({ application }: { application: TuiApplication }) {
     if (input === 'q') { void quit(); return; }
     if (input === '?') { setHelp(true); return; }
     if (input === 'm') { setMenu(true); return; }
+    if (input === 'd') { setManagement('diagnostics'); return; }
     if (input === 'p') { setTunnelMenu('workspace'); return; }
     if (input === 'u') { setTunnelMenu('channels'); return; }
     if (input === 'n') { setManagement(module === 'tunnels' ? 'tunnel-setup' : 'add-name'); return; }
@@ -289,7 +290,7 @@ export function Dashboard({ application }: { application: TuiApplication }) {
   return <Box flexDirection="column" width={width} height={height} backgroundColor={colors.background} overflow="hidden">
     <Box height={2} flexShrink={0} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderColor={colors.border} paddingX={1} justifyContent="space-between">
       <Text color={colors.accent} bold>◆ better-gpt <Text color={colors.muted}>/ {moduleNames[module]}</Text></Text>
-      <Text color={colors.muted}>m 模块  ? 帮助  {clock(now)}</Text>
+      <Text color={colors.muted}>d 诊断  m 模块  ? 帮助  {clock(now)}</Text>
     </Box>
     <Box height={bodyHeight} flexShrink={0}>
       {showSidebar && <Box width={sidebarWidth} flexShrink={0} flexDirection="column" borderStyle="single" borderTop={false} borderLeft={false} borderBottom={false}
@@ -341,7 +342,7 @@ export function Dashboard({ application }: { application: TuiApplication }) {
             return <Text key={workspace.uuid} color={workspace.uuid === focusedWorkspace?.uuid ? colors.accent : colors.foreground} wrap="truncate-end">{workspace.uuid === focusedWorkspace?.uuid ? '› ' : '  '}{oneLine(workspace.name)}　<Text color={tunnel.color}>{tunnel.symbol} {tunnel.channel} · {tunnel.label}</Text></Text>;
           })}
           <Text dimColor>{sidebarWorkspaces.length} 项 · Home/End PgUp/PgDn</Text>
-        </Box> : management ? <ManagementPanel application={application} initialPage={management} initialWorkspaceId={managementWorkspaceId} onClose={closePanel} onExit={() => { void quit(); }} onChanged={refresh} onBusyChange={onPanelBusy} height={contentHeight} />
+        </Box> : management ? <ManagementPanel application={application} initialPage={management} initialWorkspaceId={managementWorkspaceId} onClose={closePanel} onExit={() => { void quit(); }} onChanged={refresh} onBusyChange={onPanelBusy} height={contentHeight} width={rightWidth} />
           : tunnelMenu ? <Box flexDirection="column" paddingX={1} height={contentHeight}>
             <Text bold color={colors.accent}>{tunnelMenu === 'workspace' ? `项目：${focusedWorkspace?.name ?? '未选择'}` : '隧道控制 · 选择范围'}</Text>
             <Text dimColor>{tunnelMenu === 'workspace' ? '仅影响此项目公网入口，共享连接继续服务其他项目。' : '按渠道操作保留其他渠道；全部启动恢复已暂停项目。'}</Text>

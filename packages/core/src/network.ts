@@ -1,7 +1,9 @@
 import http from 'node:http';
 import https from 'node:https';
 import { Readable } from 'node:stream';
-import { ProxyAgent } from 'proxy-agent';
+import { HttpProxyAgent } from 'http-proxy-agent';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import type { ProxyConfig } from '@better-gpt/contracts';
 import { SecretVault } from './secret-vault.js';
 
@@ -44,7 +46,10 @@ export function networkFetch(proxy: ProxyConfig, directory: string): typeof glob
       const url = new URL(request.url);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('仅支持HTTP/HTTPS请求');
       const address = await proxyAddress(proxy, directory, url);
-      const agent = address ? new ProxyAgent({ getProxyForUrl: () => address }) : undefined;
+      const proxyUrl = address ? new URL(address) : undefined;
+      if (proxyUrl && !['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:'].includes(proxyUrl.protocol)) throw new Error('仅支持HTTP/HTTPS/SOCKS4/4a/5/5h代理');
+      const agent = !proxyUrl ? undefined : proxyUrl.protocol.startsWith('socks') ? new SocksProxyAgent(proxyUrl)
+        : url.protocol === 'https:' ? new HttpsProxyAgent(proxyUrl) : new HttpProxyAgent(proxyUrl);
       const body = ['GET', 'HEAD'].includes(request.method) ? undefined : Buffer.from(await request.clone().arrayBuffer());
       const response = await new Promise<Response>((resolve, reject) => {
         const headers: Record<string, string> = {}; request.headers.forEach((value, key) => { headers[key] = value; });

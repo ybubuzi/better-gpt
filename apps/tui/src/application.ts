@@ -7,6 +7,7 @@ export interface TuiApplication {
   readonly processes: Pick<ProcessManager, 'list' | 'runningCount'>;
   readonly migration: Application['migration'];
   snapshot(): Promise<AppSnapshot>;
+  diagnoseConfiguration: Application['diagnoseConfiguration'];
   createWorkspace(raw: unknown): Promise<AppSnapshot>;
   setProxy(raw: unknown): Promise<void>;
   configureSelfHostedTunnel: Application['configureSelfHostedTunnel'];

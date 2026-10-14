@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import * as prompts from '@clack/prompts';
-import { Application, DaemonClient, inspectLegacy, planTunnels } from '@better-gpt/core';
+import { Application, DaemonClient, inspectLegacy, planTunnels, formatConfigurationDiagnostics } from '@better-gpt/core';
 import { appVersion, workspaceEndpoint, tunnelStatusLabels } from '@better-gpt/contracts';
 import { setupTunnel } from './self-hosted-setup.js';
 import { doctorTunnels } from './tunnel-doctor.js';
@@ -31,6 +31,13 @@ async function openTui() {
 }
 program.action(openTui);
 program.command('tui').description('打开交互式终端界面').action(openTui);
+program.command('diagnostics').description('对照客户端与后台加载的配置文件、工作区名称、UUID和绝对路径')
+  .option('--json', '输出完整结构化诊断')
+  .action(async (options: { json?: boolean }) => {
+    const client = daemonClient();
+    try { const result = await client.diagnoseConfiguration(); if (options.json) print(result); else console.log(formatConfigurationDiagnostics(result)); }
+    finally { await client.dispose(); }
+  });
 
 const serviceCommands = program.command('service').description('独立后台 MCP 与隧道服务');
 serviceCommands.command('start').option('--port <port>', '本机 MCP 端口', '18921')
